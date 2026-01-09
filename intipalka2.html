@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ahorcado: Queirolo Mystery</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+
+    <style>
+        /* FUENTES LOCALES */
+        @font-face { font-family: 'Luckiest Guy'; src: url('css/LuckiestGuy-Regular.ttf'); }
+        @font-face { font-family: 'Bangers'; src: url('css/Bangers-Regular.ttf'); }
+
+        :root {
+            --wine: #b3282d;
+            --gold: #c5a059;
+            --success: #2ecc71;
+            --card-bg: #ffffff;
+        }
+        
+        body, html { 
+            height: 100%; margin: 0; font-family: sans-serif; 
+            overflow: hidden; display: flex; justify-content: center; align-items: center;
+          background: linear-gradient(180deg,rgba(39, 39, 39, 0.86) 0%, rgba(240, 239, 236, 0.72) 58%);
+        }
+
+        #bg-video {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -100; object-fit: cover; filter: brightness(0.4);
+        }
+
+        /* CAPA DE PÁNICO */
+        #panic-overlay {
+            position: fixed; inset: 0; z-index: 5; pointer-events: none;
+            box-shadow: inset 0 0 0px rgba(179,40,45,0); transition: 0.3s;
+        }
+        .panic-active { animation: panic-pulse 0.6s infinite alternate; }
+        @keyframes panic-pulse {
+            from { box-shadow: inset 0 0 20px rgba(179,40,45,0.6); }
+            to { box-shadow: inset 0 0 150px rgba(179,40,45,1); background: rgba(179,40,45,0.1); }
+        }
+
+        .game-container { width: 95%; max-width: 450px; z-index: 10; }
+
+        .glass-card { 
+            background: var(--card-bg); padding: 2rem 1.5rem; border-radius: 35px; 
+            box-shadow: 0 0 50px rgba(179,40,45,0.7); width: 100%; text-align: center;
+            border: 6px solid #fff; position: relative;
+        }
+
+        .hint-badge {
+            background: var(--gold); color: white; padding: 6px 18px;
+            border-radius: 25px; font-size: 0.9rem; font-family: 'Luckiest Guy';
+            display: inline-block; margin-bottom: 10px; box-shadow: 0 4px 0 #8e723a;
+        }
+
+        /* TECLADO JELLY */
+        #keyboard { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 15px; }
+        .key { 
+            background: #f0f0f0; color: var(--wine); border: none;
+            padding: 10px 0; border-radius: 10px; cursor: pointer; 
+            font-size: 1rem; font-family: 'Luckiest Guy';
+            box-shadow: 0 4px 0 #ccc; transition: 0.1s;
+        }
+        .key:active { transform: translateY(3px); box-shadow: 0 1px 0 #999; }
+        .key.correct { background: var(--success) !important; color: white; box-shadow: 0 4px 0 #27ae60; animation: bounceIn 0.4s; }
+        .key.wrong { background: #e74c3c !important; color: white; box-shadow: 0 4px 0 #c0392b; animation: headShake 0.4s; opacity: 0.6; }
+
+        /* AHORCADO SVG */
+        #hangman-svg { height: 130px; margin: 10px 0; }
+        .hangman-part { 
+            visibility: hidden; /* Oculto por defecto */
+            stroke: var(--wine); stroke-width: 7; fill: none; 
+            stroke-linecap: round; transition: 0.3s; 
+        }
+        .draw-visible { visibility: visible !important; }
+
+        .timer-text { font-size: 2.8rem; font-family: 'Bangers'; color: var(--wine); margin-bottom: 5px; }
+        .timer-panic { color: #ff0000; animation: heartBeat 0.5s infinite; }
+
+        /* MODAL */
+        .custom-modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content-card {
+            background: white; padding: 2.5rem; border-radius: 35px;
+            text-align: center; max-width: 350px; width: 90%; border: 6px solid var(--gold);
+        }
+
+        .main-btn { 
+            background: var(--wine); color: white; border: none; padding: 12px; 
+            font-size: 1.6rem; border-radius: 18px; font-family: 'Bangers'; width: 100%;
+            box-shadow: 0 5px 0 #7a1b1f; 
+        }
+    </style>
+</head>
+<body>
+
+<video autoplay muted loop playsinline id="bg-video">
+    <source src="video/fondo-intipalka.mp4" type="video/mp4">
+</video>
+
+<div id="panic-overlay"></div>
+
+<audio id="bg-music" loop>
+    <source src="audio/SoundHelix-Song-15.mp3" type="audio/mpeg">
+</audio>
+
+<div class="game-container text-center">
+    <img src="image/intipalka-logo.png" alt="Logo" style="max-width:150px; margin-bottom:15px;">
+
+    <div class="glass-card">
+        <div id="start-screen" class="screen active">
+            <h1 style="font-family:'Bangers'; color:var(--wine); font-size:3rem; font-style:italic;">EN 3,2,1</h1>
+            <input type="text" id="player-name" class="form-control mb-3 text-center" placeholder="TU NOMBRE">
+            <button class="main-btn" onclick="handleAuth()">ENTRAR</button>
+        </div>
+
+        <div id="game-screen" style="display:none;">
+            <div id="timer-box" class="timer-text">60</div>
+            <div class="hint-badge">PISTA: <span id="hint-text"></span></div>
+            
+            <svg id="hangman-svg" viewBox="0 0 100 150">
+                <path d="M10 140 L90 140 M30 140 L30 10 L70 10 L70 30" stroke="#666" stroke-width="4" fill="none"/>
+                <circle id="part-0" class="hangman-part" cx="70" cy="40" r="10" /> <line id="part-1" class="hangman-part" x1="70" y1="50" x2="70" y2="90" /> <line id="part-2" class="hangman-part" x1="70" y1="60" x2="50" y2="80" /> <line id="part-3" class="hangman-part" x1="70" y1="60" x2="90" y2="80" /> <line id="part-4" class="hangman-part" x1="70" y1="90" x2="55" y2="120" /> <line id="part-5" class="hangman-part" x1="70" y1="90" x2="85" y2="120" /> </svg>
+
+        <div id="word-display" style="font-size: 1.8rem;
+    margin: 15px 0;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    color: var(--wine);
+    font-family: 'Luckiest Guy';
+    flex-wrap: wrap;
+"></div> 
+            <div id="keyboard"></div>
+        </div>
+    </div>
+</div>
+
+<div id="result-modal" class="custom-modal">
+    <div class="modal-content-card animate__animated animate__jackInTheBox">
+        <h2 id="modal-status" style="font-family:'Luckiest Guy'; font-size: 3rem;"></h2>
+        <p id="modal-detail" style="font-size: 1.2rem; margin-bottom:20px;"></p>
+        <button class="main-btn" onclick="location.reload()">REINTENTAR</button>
+    </div>
+</div>
+
+<script>
+    const wordsDB = [
+        {p: "QUEBRANTA", h: "Mencione una de las Uvas con las que se hace Pisco Intipalka"}, 
+        {p: "PISCO", h: "Mencione un producto bandera de Perú "},
+        {p: "SAUVIGNON BLANC", h: "Mencione una uva blanca con la que se produce Vino Intipalka"}, 
+        {p: "PESCADOS", h: "Con que se puede maridar un Vino Blanco Sauvignon Blanc Intipalka"},
+        {p: "MARISCOS", h: "Con que se puede maridar un Vino Blanco Sauvignon Blanc Intipalka"},
+        {p: "PASTAS", h: "Con que se puede maridar un Vino Blanco Sauvignon Blanc Intipalka"}
+      
+    ];
+
+    let selectedWord, guessedLetters = [], errors = 0, playerName, timeLeft, timerInterval;
+    let sessionResults = [];
+
+    function handleAuth() {
+        playerName = document.getElementById('player-name').value.trim().toUpperCase();
+        if(!playerName) return;
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display = 'block';
+        startGame();
+    }
+
+    function startGame() {
+        document.getElementById('bg-music').play();
+        const item = wordsDB[Math.floor(Math.random() * wordsDB.length)];
+        selectedWord = item.p;
+        document.getElementById('hint-text').innerText = item.h;
+        guessedLetters = [" "]; errors = 0; timeLeft = 60;
+        
+        updateDisplay();
+        createKeyboard();
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            const tb = document.getElementById('timer-box');
+            tb.innerText = timeLeft;
+            if(timeLeft <= 10) {
+                tb.classList.add('timer-panic');
+                document.getElementById('panic-overlay').classList.add('panic-active');
+            }
+            if(timeLeft <= 0) endGame(false);
+        }, 1000);
+    }
+
+    function updateDisplay() {
+        const container = document.getElementById('word-display');
+        container.innerHTML = selectedWord.split('').map(char => 
+            `<span style="border-bottom: 3px solid var(--wine); min-width: 25px; height: 35px; display: flex; align-items: center; justify-content: center;">${guessedLetters.includes(char) ? char : ''}</span>`
+        ).join('');
+        if(selectedWord.split('').every(l => guessedLetters.includes(l))) setTimeout(() => endGame(true), 400);
+    }
+
+    function createKeyboard() {
+        const keys = "ABCDEFGHIJKLMNÑOPQRSTUVWXYZ".split('');
+        document.getElementById('keyboard').innerHTML = keys.map(l => `<button class="key" onclick="check('${l}', this)">${l}</button>`).join('');
+    }
+
+    function check(l, btn) {
+        if(btn.disabled) return;
+        btn.disabled = true;
+
+        if(selectedWord.includes(l)) {
+            guessedLetters.push(l); 
+            btn.classList.add('correct');
+            updateDisplay();
+        } else {
+            // MOSTRAR PARTE DEL AHORCADO SEGÚN EL ERROR
+            const part = document.getElementById(`part-${errors}`);
+            if(part) part.classList.add('draw-visible');
+            
+            errors++; 
+            btn.classList.add('wrong');
+            
+            if(errors >= 6) setTimeout(() => endGame(false), 500);
+        }
+    }
+
+    function endGame(won) {
+        clearInterval(timerInterval);
+        document.getElementById('panic-overlay').classList.remove('panic-active');
+        
+        const modal = document.getElementById('result-modal');
+        modal.style.display = 'flex';
+        const statusText = document.getElementById('modal-status');
+        statusText.innerText = won ? "¡GANASTE!" : "¡PERDISTE!";
+        statusText.style.color = won ? "var(--success)" : "var(--wine)";
+        document.getElementById('modal-detail').innerText = won ? "Resolviste el misterio." : "La palabra era: " + selectedWord;
+        
+        if(won) confetti({ particleCount: 200, spread: 70 });
+
+        // EXCEL LOCAL
+        sessionResults.push({ Jugador: playerName, Resultado: won ? "GANÓ" : "PERDIÓ", Palabra: selectedWord, Fecha: new Date().toLocaleString() });
+        const ws = XLSX.utils.json_to_sheet(sessionResults);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Data");
+        XLSX.writeFile(wb, "resultados_queirolo.xlsx");
+    }
+</script>
+</body>
+</html>
